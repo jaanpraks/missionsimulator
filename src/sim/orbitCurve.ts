@@ -1,30 +1,53 @@
-﻿import { twoline2satrec } from 'satellite.js';
-import type { MissionDefinition } from '../mission/definition';
-import type { Vec3 } from './attitude';
+﻿import * as C from 'cesium';
+import * as satellite from 'satellite.js';
+import type { CompiledScenario } from '../types';
 
-/** Stable mean-element teaching outline; the spacecraft itself still follows SGP4.
- * Vertices keep their anomaly and shape. Only smooth secular plane/apsis rotation
- * changes with time, avoiding perigee flips and sample-boundary velocity noise.
+/** One Earth-fixed interpolator for BOTH the spacecraft and its teaching orbit.
+ * Extra SGP4 samples beyond the run keep the full outline available at endpoints.
  */
-export function createOrbitCurve(mission:MissionDefinition,segments=512) {
-  const record=twoline2satrec(mission.orbit.line1,mission.orbit.line2);
-  const motion=Number(mission.orbit.line2.slice(52,63))*2*Math.PI/86400;
-  const a=Math.cbrt(398600.8/(motion*motion)),e=record.ecco,b=a*Math.sqrt(1-e*e);
-  const shape=Array.from({length:segments},(_,i)=>{
-    const angle=i/segments*2*Math.PI;
-    return [a*(Math.cos(angle)-e),b*Math.sin(angle)] as const;
-  });
-  const epochMinutes=(Date.parse(mission.simulation.startIso)/86400000+2440587.5-record.jdsatepoch)*1440;
-  const ci=Math.cos(record.inclo),si=Math.sin(record.inclo);
-  return (timeSec:number):Vec3[]=>{
-    const minutes=epochMinutes+timeSec/60;
-    const node=record.nodeo+record.nodedot*minutes;
-    const perigee=record.argpo+record.argpdot*minutes;
-    const cn=Math.cos(node),sn=Math.sin(node),cw=Math.cos(perigee),sw=Math.sin(perigee);
-    const x:Vec3=[cn*cw-sn*sw*ci,sn*cw+cn*sw*ci,sw*si];
-    const y:Vec3=[-cn*sw-sn*cw*ci,-sn*sw+cn*cw*ci,cw*si];
-    const points=shape.map(([px,py])=>x.map((v,j)=>v*px+y[j]*py) as Vec3);
-    points.push([...points[0]]);
+export function createOrbitDisplay(scenario:CompiledScenario,segments=512) {
+  const mission=scenario.mission,record=satellite.twoline2satrec(mission.orbit.line1,mission.orbit.line2);
+  const period=2*Math.PI/record.no*60;
+  const start=C.JulianDate.fromIso8601(scenario.meta.startIso);
+  const step=scenario.meta.stepSec;
+  const position=new C.SampledPositionProperty(C.ReferenceFrame.FIXED);
+  position.setInterpolationOptions({interpolationAlgorithm:C.LagrangePolynomialApproximation,interpolationDegree:5});
+  const add=(seconds:number,r:{x:number;y:number;z:number})=>{
+    const t=C.JulianDate.addSeconds(start,seconds,new C.JulianDate());
+    const fixed=satellite.eciToEcf(r,satellite.gstime(new Date(Date.parse(scenario.meta.startIso)+seconds*1000)));
+    position.addSample(t,new C.Cartesian3(fixed.x*1000,fixed.y*1000,fixed.z*1000));
+  };
+  const propagate=(seconds:number)=>{
+    const pv=satellite.propagate(record,new Date(Date.parse(scenario.meta.startIso)+seconds*1000));
+    if(!pv?.position)throw new Error('Unable to extend orbit display trajectory.');
+    add(seconds,pv.position);
+  };
+  for(let i=Math.ceil(period/step)+6;i>=1;i--)propagate(-i*step);
+  scenario.states.forEach(state=>add(state.timeSec,{x:state.positionTemeKm[0],y:state.positionTemeKm[1],z:state.positionTemeKm[2]}));
+  for(let i=1;i<=Math.ceil(period/step)+6;i++)propagate(scenario.meta.durationSec+i*step);
+
+  const curve=(time:C.JulianDate):C.Cartesian3[]=>{
+    const anchor=position.getValue(time);
+    if(!anchor)return [];
+    const currentRotation=C.Transforms.computeTemeToPseudoFixedMatrix(time);
+    const points:C.Cartesian3[]=[];
+    for(let i=0;i<=segments;i++){
+      const future=C.JulianDate.addSeconds(time,period*i/segments,new C.JulianDate());
+      const p=position.getValue(future);
+      if(!p)return [];
+      const inverse=C.Matrix3.transpose(C.Transforms.computeTemeToPseudoFixedMatrix(future),new C.Matrix3());
+      const inertial=C.Matrix3.multiplyByVector(inverse,p,new C.Cartesian3());
+      points.push(C.Matrix3.multiplyByVector(currentRotation,inertial,new C.Cartesian3()));
+    }
+    // Perturbed SGP4 trajectories do not close exactly after one nominal period.
+    // Blend out only that residual; preserve the exact shared position at u=0.
+    const residual=C.Cartesian3.subtract(points[segments],anchor,new C.Cartesian3());
+    for(let i=1;i<segments;i++){
+      const u=i/segments,weight=u*u*(3-2*u);
+      C.Cartesian3.subtract(points[i],C.Cartesian3.multiplyByScalar(residual,weight,new C.Cartesian3()),points[i]);
+    }
+    points[0]=anchor.clone();points[segments]=anchor.clone();
     return points;
   };
+  return {position,curve,period};
 }

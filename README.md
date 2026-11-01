@@ -365,16 +365,18 @@ returns North. Compass entities are hidden in other views.
 
 ## Inertial orbit outline
 
-The yellow altitude curve is a stable closed ellipse from the TLE mean elements,
-with Earth at a focus. Its vertices keep a fixed eccentric-anomaly spacing and
-shape throughout a run. Only smooth secular RAAN and argument-of-perigee rotation
-(from satellite.js initialization rates) changes with time. This prevents noise
-from interpolated velocities and near-circular perigee flips from vibrating the
-line. Mean motion and eccentricity define the fixed shape, matching Orbit design.
-The satellite still uses the full SGP4 trajectory, so a small separation from the
-teaching outline is expected; drag and short-period shape oscillations are omitted
-from the outline. It is not an exact instantaneous orbit or future prediction.
-Every vertex uses the SAME current mission-time TEME-to-Earth-fixed rotation.
-Rewind is deterministic, with no playback-speed-dependent smoothing or lag.
-The Orbit at altitude toggle controls this outline in every view. Turquoise tracks
-retain their Earth-fixed history and 2/3-orbit prediction.
+The yellow altitude curve and displayed satellite share ONE Cesium sampled-position
+property, with fifth-degree Lagrange interpolation. SGP4 samples extend one orbit
+beyond the run boundaries for visualization only; simulation duration, telemetry
+and resource calculations are unchanged. The first and last line vertices are
+exact copies of the current interpolated spacecraft center, including between
+samples and during rewind. No separate mean ellipse or velocity-derived fit is used.
+
+Further vertices sample that same interpolator over the next nominal orbit.
+Their own Earth rotations are removed and the entire curve is transformed at the
+current display time, preventing an Earth-fixed spiral. SGP4 precession means a
+trajectory does not close perfectly in one nominal period; a smoothstep blend
+removes only the endpoint residual, leaving an illustrative closed orbit anchored
+to the satellite. This is deliberately a visualization approximation, not an exact
+future trajectory. The Orbit at altitude toggle controls it in every view.
+Turquoise ground tracks retain their Earth-fixed history and 2/3-orbit prediction.

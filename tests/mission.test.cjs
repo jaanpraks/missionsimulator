@@ -394,41 +394,42 @@ test('Cesium ground track follows the satellite surface projection and rewinds',
   assert.ok(Cartesian3.angleBetween(before, after) < 0.001);
 });
 
-test('yellow mean orbit stays closed and rigid through sample boundaries, near-circular orbits and rewind', async () => {
-  const {createOrbitCurve}=require('../src/sim/orbitCurve.ts');
-  const {Cartesian3,Matrix3,Transforms,JulianDate}=await import('cesium');
-  for(const eccentric of [false,true]) {
-    const mission=createDefaultMission();
-    const original=elementsFromTle(mission.orbit.line2);
+test('yellow orbit shares spacecraft interpolation and exact anchor across boundaries and rewind',async()=>{
+  const {createOrbitDisplay}=require('../src/sim/orbitCurve.ts');
+  const {JulianDate,Cartesian3,Matrix3,Transforms}=await import('cesium');
+  for(const eccentric of [false,true]){
+    const mission=createDefaultMission(),original=elementsFromTle(mission.orbit.line2);
     mission.orbit=tleFromElements({...original,perigeeKm:500,apogeeKm:eccentric?1500:500},mission.simulation.startIso,mission.orbit);
-    const curve=createOrbitCurve(mission),initial=curve(0);
-    const norm=p=>Math.hypot(...p);
-    const distance=(a,b)=>Math.hypot(...a.map((v,i)=>v-b[i]));
-    const elements=elementsFromTle(mission.orbit.line2);
-    assert.ok(Math.abs(norm(initial[0])-(elements.perigeeKm+6378.135))<1e-7);
-    assert.ok(Math.abs(norm(initial[256])-(elements.apogeeKm+6378.135))<1e-7);
-    for(const seconds of [0,9.99,10,10.01,6000,16000,200]) {
-      const points=curve(seconds);
-      assert.deepEqual(points[0],points.at(-1));
-      points.forEach((point,i)=>{
-        assert.ok(Math.abs(norm(point)-norm(initial[i]))<1e-8,'Orbit must not breathe');
-        assert.ok(Math.abs(distance(point,points[(i+1)%512])-distance(initial[i],initial[(i+1)%512]))<1e-8,'Vertices must retain spacing');
-      });
-      const t=JulianDate.addSeconds(JulianDate.fromIso8601(mission.simulation.startIso),seconds,new JulianDate());
-      const rotation=Transforms.computeTemeToPseudoFixedMatrix(t),inverse=Matrix3.transpose(rotation,new Matrix3());
-      points.forEach(point=>{
-        const p=Cartesian3.fromArray(point),fixed=Matrix3.multiplyByVector(rotation,p,new Cartesian3());
-        const restored=Matrix3.multiplyByVector(inverse,fixed,new Cartesian3());
-        assert.ok(Cartesian3.distance(p,restored)<1e-8);
-      });
+    const run=compileScenario(mission),display=createOrbitDisplay(run);
+    const start=JulianDate.fromIso8601(run.meta.startIso);
+    const at=seconds=>JulianDate.addSeconds(start,seconds,new JulianDate());
+    const saved=display.curve(at(200));
+    for(const seconds of [0,9.99,10,10.01,123.45,run.meta.durationSec,200]){
+      const time=at(seconds),points=display.curve(time),sat=display.position.getValue(time);
+      assert.equal(points.length,513);
+      assert.deepEqual(points[0],sat);
+      assert.deepEqual(points.at(-1),sat);
+      assert.ok(points.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&Number.isFinite(p.z)));
+      const rotation=Transforms.computeTemeToPseudoFixedMatrix(time);
+      const future=at(seconds+display.period),end=display.position.getValue(future);
+      const inertialEnd=Matrix3.multiplyByVector(Matrix3.transpose(Transforms.computeTemeToPseudoFixedMatrix(future),new Matrix3()),end,new Cartesian3());
+      const residual=Cartesian3.subtract(Matrix3.multiplyByVector(rotation,inertialEnd,new Cartesian3()),sat,new Cartesian3());
+      const index=100,u=index/512,t=at(seconds+display.period*u);
+      const sampled=display.position.getValue(t);
+      const inertial=Matrix3.multiplyByVector(Matrix3.transpose(Transforms.computeTemeToPseudoFixedMatrix(t),new Matrix3()),sampled,new Cartesian3());
+      const expected=Matrix3.multiplyByVector(rotation,inertial,new Cartesian3());
+      Cartesian3.subtract(expected,Cartesian3.multiplyByScalar(residual,u*u*(3-2*u),new Cartesian3()),expected);
+      assert.ok(Cartesian3.distance(expected,points[index])<1e-6,'Further points must use the same interpolator');
     }
-    const before=curve(9.99),at=curve(10),after=curve(10.01);
-    for(let i=0;i<512;i++){
-      const acceleration=after[i].map((v,j)=>v-2*at[i][j]+before[i][j]);
-      assert.ok(norm(acceleration)<1e-8,'No sample-boundary jumps');
-      assert.ok(distance(before[i],after[i])<.01,'Only slow secular drift, no vertex flips');
+    assert.deepEqual(display.curve(at(200)),saved);
+    const frame=seconds=>{
+      const time=at(seconds),inverse=Matrix3.transpose(Transforms.computeTemeToPseudoFixedMatrix(time),new Matrix3());
+      return display.curve(time).map(p=>Matrix3.multiplyByVector(inverse,p,new Cartesian3()));
+    };
+    const a=frame(9.99),b=frame(10),c=frame(10.01);
+    for(let i=0;i<a.length;i++){
+      const acceleration=Cartesian3.add(Cartesian3.subtract(c[i],Cartesian3.multiplyByScalar(b[i],2,new Cartesian3()),new Cartesian3()),a[i],new Cartesian3());
+      assert.ok(Cartesian3.magnitude(acceleration)<.1,'No sample-boundary vibration');
     }
-    assert.deepEqual(curve(200),curve(200),'Evaluation must be independent of playback history');
-    assert.ok(distance(initial[0],curve(16000)[0])>1,'Preserve secular plane/apsis evolution');
   }
 });
