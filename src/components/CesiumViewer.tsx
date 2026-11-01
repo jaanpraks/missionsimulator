@@ -5,6 +5,7 @@ import type { CompiledScenario, SimViewId } from '../types';
 import { Button } from './ui';
 import { satelliteGltf, satelliteGeometry } from '../mission/geometry';
 import { payloadFrame } from '../mission/payload';
+import { inertialStateAt, orbitEllipse } from '../sim/orbitCurve';
 import { stationLook } from '../sim/station';
 import { orbitalFrameAxes, ORBITAL_CAMERA_OFFSET, SATELLITE_DISPLAY_RADIUS_M } from '../sim/orbitalFrame';
 
@@ -96,6 +97,22 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
           });
         }
       }
+      // Every point uses the SAME current-time rotation. A CZML path in FIXED
+      // coordinates instead joins historical Earth rotations into a spiral.
+      ds.entities.add({
+        id: 'inertial-orbit', name: 'Instantaneous inertial orbit ellipse',
+        polyline: {
+          positions: new C.CallbackProperty(time => {
+            const t=time ?? viewer.clock.currentTime;
+            const seconds=C.JulianDate.secondsDifference(t,C.JulianDate.fromIso8601(scenario.meta.startIso));
+            const state=inertialStateAt(scenario.states,seconds);
+            const rotation=C.Transforms.computeTemeToPseudoFixedMatrix(t);
+            return orbitEllipse(state.position,state.velocity).map(point=>C.Matrix3.multiplyByVector(rotation,C.Cartesian3.fromElements(point[0]*1000,point[1]*1000,point[2]*1000),new C.Cartesian3()));
+          },false),
+          arcType:C.ArcType.NONE, width:2,
+          material:C.Color.fromCssColorString('#ffcf5c').withAlpha(.82)
+        }
+      });
       for (const station of scenario.mission.groundStations) {
         const base = C.Cartesian3.fromDegrees(station.lng, station.lat, station.altMeters ?? 0);
         ds.entities.add({
@@ -169,8 +186,8 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
       const entity = source.entities.getById(id);
       if (entity) entity.show = ground;
     }
-    const sat = source.entities.getById('sat-1');
-    if (sat?.path) sat.path.show = new C.ConstantProperty(orbit);
+    const ellipse = source.entities.getById('inertial-orbit');
+    if (ellipse) ellipse.show = orbit;
   }, [source, ground, orbit]);
 
   useEffect(() => {
@@ -357,6 +374,6 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
       </div>
     </div>
     {(simView === 'orbital' || simView === 'satInertial') && <p style={{fontSize:12,color:'#94a3b8'}}>Spacecraft enlarged for visibility; orbit unchanged. Red face: +X, green: +Y, cyan camera face: {scenario?.mission.spacecraft.payload.side ?? '+Z'}. Attitude: {scenario?.mission.spacecraft.attitude?.strategy ?? 'sun-pointing'}.</p>}
-    <p style={{ fontSize: 12, color: '#94a3b8' }}>Turquoise solid: recent ground track; dashed: predicted track (next 2/3 orbit). Yellow: orbit. Stop holds the current time; Reset returns to the beginning.</p>
+    <p style={{ fontSize: 12, color: '#94a3b8' }}>Turquoise solid: recent ground track; dashed: predicted track (next 2/3 orbit). Yellow: closed instantaneous inertial orbit. Stop holds the current time; Reset returns to the beginning.</p>
   </div>;
 }

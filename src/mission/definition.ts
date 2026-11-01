@@ -164,7 +164,7 @@ export function validateMissionDefinition(value: unknown): asserts value is Miss
     number(radio.loadW, 'spacecraft.radio.loadW', 0);
   }
   if (spacecraft.storage !== undefined) number(object(spacecraft.storage,'spacecraft.storage').capacityMB,'spacecraft.storage.capacityMB',0.001,1000000);
-  const ids = new Set<string>(['document', 'sat-1', 'ground-track', 'ground-track-future', 'nadir-line', 'sat-body-axis-X', 'sat-body-axis-Y', 'sat-body-axis-Z']);
+  const ids = new Set<string>(['document', 'inertial-orbit', 'sat-1', 'ground-track', 'ground-track-future', 'nadir-line', 'sat-body-axis-X', 'sat-body-axis-Y', 'sat-body-axis-Z']);
   function uniqueId(v: unknown, path: string) {
     string(v, path);
     if (ids.has(v)) throw new Error(`${path} must be unique and not a reserved entity ID`);

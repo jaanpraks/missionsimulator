@@ -228,13 +228,6 @@ export function compileScenario(input: MissionDefinition): CompiledScenario {
         color: { rgba: [255, 207, 92, 255] },
         outlineColor: { rgba: [10, 20, 35, 255] },
         outlineWidth: 2
-      },
-      path: {
-        show: true,
-        width: 2,
-        leadTime: 0,
-        trailTime: periodSec,
-        material: { solidColor: { color: { rgba: [255, 207, 92, 210] } } }
       }
     },
     ...mission.groundStations.map(gs => ({

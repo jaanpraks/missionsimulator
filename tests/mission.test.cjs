@@ -393,3 +393,42 @@ test('Cesium ground track follows the satellite surface projection and rewinds',
   const after = Cartesian3.subtract(position(10.01), position(10), new Cartesian3());
   assert.ok(Cartesian3.angleBetween(before, after) < 0.001);
 });
+
+test('yellow orbit is a closed inertial ellipse, independent of historical Earth rotation', async () => {
+  const {orbitEllipse,inertialStateAt}=require('../src/sim/orbitCurve.ts');
+  const {Cartesian3,Matrix3,Transforms,JulianDate}=await import('cesium');
+  const mu=398600.4418;
+  const circular=orbitEllipse([7000,0,0],[0,Math.sqrt(mu/7000),0]);
+  assert.deepEqual(circular[0],circular.at(-1));
+  circular.forEach(point=>assert.ok(Math.abs(Math.hypot(...point)-7000)<1e-8));
+  const eccentric=orbitEllipse([7000,0,0],[0,8,0]);
+  const a=1/(2/7000-64/mu),e=64*7000/mu-1,b=a*Math.sqrt(1-e*e);
+  eccentric.forEach(([x,y,z])=>{
+    assert.ok(Math.abs((x+a*e)**2/a**2+y*y/b**2-1)<1e-10);
+    assert.ok(Math.abs(z)<1e-12);
+  });
+  const mission=createDefaultMission();mission.simulation.duration={type:'orbits',count:3};
+  const run=compileScenario(mission);
+  assert.equal(run.czml.find(p=>p.id==='sat-1').path,undefined);
+  for(const seconds of [0,123.5,6000,run.meta.durationSec,200]){
+    const state=inertialStateAt(run.states,seconds),curve=orbitEllipse(state.position,state.velocity);
+    assert.deepEqual(curve[0],curve.at(-1));
+    const h=Cartesian3.cross(Cartesian3.fromArray(state.position),Cartesian3.fromArray(state.velocity),new Cartesian3());
+    Cartesian3.normalize(h,h);
+    const t=JulianDate.addSeconds(JulianDate.fromIso8601(run.meta.startIso),seconds,new JulianDate());
+    const rotation=Transforms.computeTemeToPseudoFixedMatrix(t),inverse=Matrix3.transpose(rotation,new Matrix3());
+    const fixed=curve.map(p=>Matrix3.multiplyByVector(rotation,Cartesian3.fromArray(p),new Cartesian3()));
+    assert.deepEqual(fixed[0],fixed.at(-1));
+    fixed.forEach((p,i)=>{
+      const inertial=Matrix3.multiplyByVector(inverse,p,new Cartesian3());
+      assert.ok(Cartesian3.distance(inertial,Cartesian3.fromArray(curve[i]))<1e-8);
+      assert.ok(Math.abs(Cartesian3.dot(inertial,h))<1e-8);
+    });
+    const r=Math.hypot(...state.position),v2=state.velocity.reduce((s,v)=>s+v*v,0);
+    const semimajor=1/(2/r-v2/mu);
+    const angular=Cartesian3.magnitude(Cartesian3.cross(Cartesian3.fromArray(state.position),Cartesian3.fromArray(state.velocity),new Cartesian3()));
+    const ecc=Math.sqrt(Math.max(0,1-angular*angular/(mu*semimajor)));
+    const closest=curve[0];
+    assert.ok(Math.abs(Math.hypot(...closest)-semimajor*(1-ecc))<1e-7);
+  }
+});

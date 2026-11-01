@@ -362,3 +362,14 @@ the selected station; only directions inside the camera field of view are visibl
 The current heading is shown beside the optional Track satellite checkbox. When
 tracking is enabled the camera pans/tilts toward above-mask satellites and otherwise
 returns North. Compass entities are hidden in other views.
+
+## Inertial orbit outline
+
+The yellow altitude curve is a closed instantaneous two-body ellipse derived from
+interpolated TEME position and velocity, with Earth at a focus. It is an educational
+osculating orbit outline, not the historical SGP4 trajectory or a future prediction.
+Every vertex is transformed from TEME to Earth-fixed using the same current mission
+time, so Earth rotates underneath the orbit without winding the curve into a spiral.
+Slow SGP4 plane/shape evolution remains visible. Rewind evaluates the selected time
+directly. The Orbit at altitude toggle controls this outline in every view.
+Turquoise ground tracks retain their Earth-fixed history and 2/3-orbit prediction.
