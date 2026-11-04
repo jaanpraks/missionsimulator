@@ -68,7 +68,7 @@ export function satelliteGltf(spacecraft: MissionDefinition['spacecraft']): stri
   }
   const bytes = new Uint8Array(new Float32Array(vertices).buffer);
   let binary=''; for (const byte of bytes) binary+=String.fromCharCode(byte);
-  const gltf={asset:{version:'2.0',generator:'MissionSim EDU'},extensionsUsed:['KHR_materials_unlit'],scene:0,scenes:[{nodes:[0]}],
+  const gltf={asset:{version:'2.0',generator:'Aalto EDUSat'},extensionsUsed:['KHR_materials_unlit'],scene:0,scenes:[{nodes:[0]}],
     // glTF +Y is up; rotate mesh so Cesium's Y-up conversion restores body XYZ.
     nodes:[{mesh:0,rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2]}],meshes:[{primitives}],
     buffers:[{uri:'data:application/octet-stream;base64,'+btoa(binary),byteLength:bytes.length}],bufferViews:views,accessors,

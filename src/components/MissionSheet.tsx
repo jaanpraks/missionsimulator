@@ -1,10 +1,11 @@
-import { busPowerLoads } from '../mission/subsystems';
+import InfoPopover from './InfoPopover';
+import MissionModesTable from './MissionModesTable';
+import { missionModeBudgets } from '../mission/modes';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import type { MissionDefinition } from '../mission/definition';
 import { defaultMissionPlan, missionTiming, operationAt, validateOperationSchedule } from '../sim/operations';
 import { Button, Card, Select } from './ui';
 import { Field, FieldValidity } from './FormField';
-import { DEFAULT_RADIO } from '../sim/resources';
 
 const grid: React.CSSProperties = {display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:12};
 const colors: Record<string,string> = {nominal:'#5276b9',idle:'#5276b9',safe:'#e4ad56',imaging:'#44dcb8',downlink:'#b791ef'};
@@ -43,7 +44,7 @@ export default function MissionSheet({mission,onUpdate}: {
   const imagingSec=segments.filter(s=>s.mode==='imaging').reduce((sum,s)=>sum+s.end-s.start,0);
   const latestEnd=mission.operations.reduce((end,op)=>Math.max(end,op.endSec),0);
   const points=[0,...sorted.flatMap(op=>[op.startSec,op.endSec]),limit].filter(t=>t>=0 && t<=limit).sort((a,b)=>a-b);
-  const maxLoad=Math.max(1,Object.values(busPowerLoads(mission.spacecraft)).reduce((sum, load) => sum + load, 0)+mission.spacecraft.payload.loadW,plan.safeLoadW)*1.2;
+  const maxLoad=Math.max(1,...missionModeBudgets(mission.spacecraft).map(mode => mode.totalW))*1.2;
   const x=(t:number)=>60+t/limit*790;
   const y=(load:number)=>215-load/maxLoad*85;
   let loadPath='';
@@ -65,20 +66,16 @@ export default function MissionSheet({mission,onUpdate}: {
       </div>
       <p className="muted">Orbit: {(timing.periodSec/60).toFixed(1)} min · Run: {(timing.durationSec/3600).toFixed(2)} h. Changing start time does not rewrite an imported TLE; use Orbit controls to generate elements at the new epoch.</p>
     </Card>
-    <Card title="Operating modes and electrical demand">
+    <Card title="Mission modes">
       <div style={grid}>
         <label>Default operating mode<Select aria-label="Default operating mode" value={plan.defaultMode} onChange={e=>changePlan({defaultMode:e.target.value as 'nominal'|'safe'})}><option value="nominal">Nominal</option><option value="safe">Safe</option></Select></label>
-        <p className="muted">Nominal bus load: {Object.values(busPowerLoads(mission.spacecraft)).reduce((sum, load) => sum + load, 0).toFixed(2)} W. Set subsystem power allocations in Satellite.</p>
-        <Field label="Safe mode load (W)" min={0} value={plan.safeLoadW} onCommit={numeric((next,value)=>{next.missionPlan={...(next.missionPlan ?? defaultMissionPlan),safeLoadW:value};})}/>
-        <Field label="Payload additional load (W)" min={0} value={mission.spacecraft.payload.loadW} onCommit={numeric((next,value)=>{next.spacecraft.payload.loadW=value;})}/>
-        <Field label="Downlink radio load (W)" min={0} value={mission.spacecraft.radio?.loadW ?? DEFAULT_RADIO.loadW} onCommit={numeric((next,value)=>{next.spacecraft.radio={...(next.spacecraft.radio ?? DEFAULT_RADIO),loadW:value};})}/>
         <label>Downlink strategy<Select aria-label="Downlink strategy" value={plan.downlinkStrategy ?? 'when-available'} onChange={e=>changePlan({downlinkStrategy:e.target.value as 'when-available'|'disabled'})}><option value="when-available">Download when a station is available</option><option value="disabled">Do not download data</option></Select></label>
       </div>
-      <p className="muted">Nominal: bus only. Imaging: bus + payload. Safe: safe load, camera and radio off. Automatic downlink adds radio power while queued data is transmitted above any station mask; it can run alongside imaging. Imaging does not change attitude. Battery shortfalls pause imaging/transmission; no automatic safe-mode transition is applied.</p>
+      <MissionModesTable spacecraft={mission.spacecraft} />
     </Card>
     <Card title="Operations schedule">
       <label><input type="checkbox" aria-label="Repeat schedule each orbit" checked={plan.repeatEachOrbit} onChange={e=>changePlan({repeatEachOrbit:e.target.checked})}/> Repeat this schedule each orbit</label>
-      <p className="muted">Times are minutes from {plan.repeatEachOrbit?'the beginning of each orbit':'mission start'}. Unscheduled time uses {plan.defaultMode} mode. Intervals must not overlap.</p>
+      <InfoPopover label="Mission planning">Times are minutes from {plan.repeatEachOrbit?'the beginning of each orbit':'mission start'}. Unscheduled time uses {plan.defaultMode} mode. Intervals must not overlap.</InfoPopover>
       {scheduleError && <p role="alert" style={{color:'#fca5a5'}}>{scheduleError}</p>}
       {mission.operations.map((op,i)=><fieldset key={i} style={{border:'1px solid #334155',borderRadius:8,padding:12,margin:'10px 0'}}>
         <legend>Interval {i+1}</legend><div style={grid}>
@@ -105,7 +102,7 @@ export default function MissionSheet({mission,onUpdate}: {
         <path d={loadPath} fill="none" stroke="#ffcf5c" strokeWidth="2"/>
       </svg>
       <div style={{display:'flex',gap:16,flexWrap:'wrap',fontSize:12,marginTop:8}}>{['nominal','safe','imaging','downlink'].map(mode=><span key={mode} style={{color:colors[mode]}}>■ {mode}</span>)}<span style={{color:'#ffcf5c'}}>Line: electrical demand</span></div>
-      <p className="muted">Preview shows scheduled loads. Contact-dependent radio demand is added during simulation, when data is actually available to transmit.</p>
+      <InfoPopover label="Mission planning">Preview shows scheduled loads. Contact-dependent radio demand is added during simulation, when data is actually available to transmit.</InfoPopover>
     </Card>
   </div>;
 }

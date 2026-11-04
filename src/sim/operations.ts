@@ -31,7 +31,7 @@ export function operationAt(mission: MissionDefinition, timeSec: number, periodS
   const time = plan.repeatEachOrbit ? ((timeSec % periodSec) + periodSec) % periodSec : timeSec;
   const scheduled = mission.operations.find(op => time >= op.startSec && time < op.endSec)?.mode;
   const mode = scheduled === 'idle' ? 'nominal' : scheduled ?? plan.defaultMode;
-  const busLoadW = mode === 'safe' ? plan.safeLoadW : Object.values(busPowerLoads(mission.spacecraft)).reduce((sum, load) => sum + load, 0);
+  const busLoadW = mode === 'safe' ? busPowerLoads(mission.spacecraft).eps : Object.values(busPowerLoads(mission.spacecraft)).reduce((sum, load) => sum + load, 0);
   const payloadOn = mode === 'imaging';
   const payloadLoadW = payloadOn ? mission.spacecraft.payload.loadW : 0;
   return {mode,payloadOn,busLoadW,payloadLoadW,totalLoadW:busLoadW+payloadLoadW};

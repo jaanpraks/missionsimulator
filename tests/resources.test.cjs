@@ -127,7 +127,7 @@ test('empty battery blocks camera initially and solar recharge restores operatio
   assert.ok(states.at(-1).downloadedBytes>0);
 });
 
-test('subsystem bus allocations drive nominal demand and preserve safe-mode demand',()=>{
+test('subsystem bus allocations drive nominal demand and EPS-only safe-mode demand',()=>{
   const {validateMissionDefinition}=require('../src/mission/definition.ts');
   const mission=createDefaultMission();
   assert.equal(operationAt(mission,0,6000).busLoadW,8);
@@ -137,9 +137,27 @@ test('subsystem bus allocations drive nominal demand and preserve safe-mode dema
   mission.operations=[{startSec:0,endSec:10,mode:'imaging'}];
   assert.equal(operationAt(mission,0,6000).totalLoadW,20.5);
   mission.operations=[{startSec:0,endSec:10,mode:'safe'}];
-  assert.equal(operationAt(mission,0,6000).busLoadW,2);
+  assert.equal(operationAt(mission,0,6000).busLoadW,1);
   for(const value of [-1,NaN,Infinity,undefined]) {
     mission.spacecraft.power.subsystemLoadsW.adcs=value;
     assert.throws(()=>validateMissionDefinition(mission),/subsystemLoadsW.adcs/);
   }
+});
+
+test('mission mode budgets show active subsystem power and update with the design',()=>{
+  const {missionModeBudgets}=require('../src/mission/modes.ts');
+  const mission=createDefaultMission();
+  mission.spacecraft.power.subsystemLoadsW={eps:2,obc:3,adcs:4,structure:0};
+  mission.spacecraft.radio.loadW=5;
+  mission.spacecraft.payload.loadW=12;
+  let modes=missionModeBudgets(mission.spacecraft);
+  assert.deepEqual(modes.map(mode=>[mode.id,mode.totalW]),[['safe',2],['nominal',9],['downlink',14],['imaging',21]]);
+  assert.deepEqual(modes.map(mode=>mode.loads.filter(([,watts])=>watts!==null).map(([name])=>name)),[['EPS'],['EPS','OBC','ADCS'],['EPS','OBC','ADCS','COM'],['EPS','OBC','ADCS','Payload']]);
+  mission.spacecraft.power.subsystemLoadsW.eps=0;
+  modes=missionModeBudgets(mission.spacecraft);
+  assert.equal(modes[0].loads[0][1],0);
+  mission.operations=[{startSec:0,endSec:10,mode:'safe'}];
+  assert.equal(operationAt(mission,0,6000).totalLoadW,modes[0].totalW);
+  mission.spacecraft.payload.loadW=20;
+  assert.equal(missionModeBudgets(mission.spacecraft)[3].totalW,27);
 });

@@ -1,3 +1,4 @@
+import InfoPopover from './InfoPopover';
 import React, { useState } from 'react';
 import { EARTH_CONTOURS } from '../mission/earthContours';
 import type { MissionDefinition } from '../mission/definition';
@@ -75,7 +76,7 @@ function OrbitPreview({ elements, startIso }: { elements: OrbitElements; startIs
       <text x="20" y="332" fill="#94a3b8" fontSize="12">Dashed: equator / Greenwich · Yellow dot: starting position</text>
     </svg>
     <label style={{display:'flex',gap:12,fontSize:12,alignItems:'center',marginTop:12}}>View longitude {viewLongitude} deg<input aria-label="Orbit preview longitude" type="range" min="-180" max="180" value={viewLongitude} onChange={e=>setViewLongitude(Number(e.target.value))} style={{flex:1}} /></label>
-    <p style={{fontSize:12,color:'#94a3b8'}}>Earth-fixed at mission start. RAAN is measured in the inertial equatorial frame, not from Greenwich. Coastlines are schematic.</p>
+    <InfoPopover label="Orbit configuration">Earth-fixed at mission start. RAAN is measured in the inertial equatorial frame, not from Greenwich. Coastlines are schematic.</InfoPopover>
     <details style={{ marginTop: 12 }}><summary style={{ cursor: 'pointer', color: '#94a3b8', fontSize: 13 }}>Inspect the ellipse in its orbital plane</summary>
     <svg viewBox="0 0 600 360" role="img" aria-label="Orbit shape viewed in its own plane; Earth at one focus" style={{ width: '100%', display: 'block' }}>
       <text x="20" y="22" fill="#94a3b8" fontSize="12">Orbit shape · Viewed in the orbital plane</text>
@@ -107,7 +108,7 @@ export default function OrbitSheet({ mission, onUpdate }: {
     <div className="orbit-builder-grid">
       <Card title="Orbit configuration">
         <div style={{ display: 'grid', gap: 22 }}>
-          <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>Move the sliders to change the orbit. Equal perigee and apogee produce a circular orbit.</p>
+          <InfoPopover label="Orbit configuration">Move the sliders to change the orbit. Equal perigee and apogee produce a circular orbit.</InfoPopover>
           <Slider label="Perigee altitude" value={elements.perigeeKm} min={150} max={2000} unit="km" onChange={value => change({ perigeeKm: value })} />
           <Slider label="Apogee altitude" value={elements.apogeeKm} min={150} max={10000} unit="km" onChange={value => change({ apogeeKm: value })} />
           <Slider label="Inclination" value={elements.inclinationDeg} min={0} max={180} step={0.1} unit="deg" onChange={value => change({ inclinationDeg: value })} />
@@ -125,7 +126,7 @@ export default function OrbitSheet({ mission, onUpdate }: {
       <Card title="Earth and orbital ellipse"><OrbitPreview elements={elements} startIso={mission.simulation.startIso} /></Card>
     </div>
     <Card title="Educational TLE">
-      <p style={{ fontSize: 13, color: '#94a3b8' }}>Slider edits update the shared TLE, with its epoch set to the mission start time. Altitudes and the diagram are approximate mean-element geometry; simulation uses satellite.js. Manual TLE edits remain available in Configuration JSON.</p>
+      <InfoPopover label="Orbit configuration">Slider edits update the shared TLE, with its epoch set to the mission start time. Altitudes and the diagram are approximate mean-element geometry; simulation uses satellite.js. Manual TLE edits remain available in Configuration JSON.</InfoPopover>
       <pre style={{ overflowX: 'auto', fontSize: 12, color: '#44ebd3', padding: 12, background: '#020617', borderRadius: 8 }}>{mission.orbit.line1 + '\n' + mission.orbit.line2}</pre>
       <div style={{ fontSize: 12, color: '#94a3b8' }}>Mission start (UTC): {mission.simulation.startIso}</div>
     </Card>

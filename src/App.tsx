@@ -3,6 +3,9 @@ import type { CompiledScenario, RunRecord, SimViewId, TabId } from './types';
 import { compileScenario } from './sim/compiler';
 import CesiumViewer from './components/CesiumViewer';
 import OperatorPolarPlot from './components/OperatorPolarPlot';
+import StartTab from './components/StartTab';
+import InfoPopover from './components/InfoPopover';
+import ChallengesTab, { CHALLENGES } from './components/ChallengesTab';
 import BuildTab from './components/BuildTab';
 import SolarPowerChart from './components/SolarPowerChart';
 import StationAnalysis from './components/StationAnalysis';
@@ -14,9 +17,11 @@ import { HeaderTargets, HeaderPortal } from './components/HeaderPortal';
 import { scrollContentToTop } from './components/scroll';
 
 const TAB_OPTIONS = [
+  { id: 'start', label: 'Start' },
   { id: 'build', label: 'Build' },
   { id: 'simulate', label: 'Simulate' },
-  { id: 'analyze', label: 'Analyze' }
+  { id: 'analyze', label: 'Analyze' },
+  { id: 'challenges', label: 'Challenges' }
 ] as const;
 
 const VIEW_OPTIONS = [
@@ -29,7 +34,9 @@ const VIEW_OPTIONS = [
 
 
 export default function App() {
-  const [tab, setTab] = useState<TabId>('build');
+  const [tab, setTab] = useState<TabId>('start');
+  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const challenge = CHALLENGES.find(item => item.id === challengeId);
   const [view, setView] = useState<SimViewId>('global');
   const [navigation, setNavigation] = useState<HTMLDivElement | null>(null);
   const [actions, setActions] = useState<HTMLDivElement | null>(null);
@@ -52,14 +59,16 @@ export default function App() {
     <HeaderTargets.Provider value={{navigation,actions}}>
     <div className="app-shell">
       <header className="app-header">
-        <TopBar canSimulate={!!scenario && savedText === missionText} canAnalyze={runs.length > 0} tab={tab} setTab={setTab} subtitle={tab === 'build' ? 'Configure your mission' : tab === 'analyze' ? 'Inspect recorded mission results' : subtitle} />
-        <div className="stage-header-row">
+        <TopBar challenge={challenge?.objective} canSimulate={!!scenario && savedText === missionText} canAnalyze={runs.length > 0} tab={tab} setTab={setTab} subtitle={tab === 'challenges' ? 'Choose a mission objective' : tab === 'start' ? 'Your mission starts here' : tab === 'build' ? 'Configure your mission' : tab === 'analyze' ? 'Inspect recorded mission results' : subtitle} />
+        <div className="stage-header-row" hidden={tab === 'start' || tab === 'challenges'}>
           <div className="stage-navigation" ref={setNavigation} />
           <div className="stage-actions" ref={setActions} />
         </div>
       </header>
 
       <main className="app-content" aria-label="Stage content" tabIndex={-1}>
+        <section hidden={tab !== 'start'}><StartTab onBuild={() => setTab('build')} /></section>
+        <section hidden={tab !== 'challenges'}><ChallengesTab selectedId={challengeId} onSelect={setChallengeId} /></section>
         <section hidden={tab !== 'build'}>
           <BuildTab
             active={tab === 'build'}
@@ -96,13 +105,14 @@ export default function App() {
   );
 }
 
-function TopBar({ tab, setTab, subtitle, canSimulate, canAnalyze }: { tab: TabId; setTab: (t: TabId) => void; subtitle: string; canSimulate: boolean; canAnalyze: boolean }) {
+function TopBar({ tab, setTab, subtitle, canSimulate, canAnalyze, challenge }: { tab: TabId; setTab: (t: TabId) => void; subtitle: string; canSimulate: boolean; canAnalyze: boolean; challenge?: string }) {
   return <div className="main-header-row">
     <nav className="stage-tabs" aria-label="Mission stages">{TAB_OPTIONS.map(option => {
       const disabled = option.id === 'simulate' ? !canSimulate : option.id === 'analyze' ? !canAnalyze : false;
       return <button key={option.id} aria-current={tab === option.id ? 'page' : undefined} disabled={disabled} title={disabled ? option.id === 'simulate' ? 'Save your configuration first' : 'Complete a simulation first' : undefined} onClick={() => setTab(option.id)}>{option.label}</button>;
     })}</nav>
-    <div className="brand"><strong>MissionSim EDU</strong><span>{subtitle}</span></div>
+    {challenge && <span className="challenge-reminder" role="status">Challenge: {challenge}</span>}
+    <div className="brand"><strong>Aalto EDUSat</strong><span>{subtitle}</span></div>
   </div>;
 }
 
@@ -120,12 +130,7 @@ function SimulateTab({ scenario, view, setView, active, onComplete }: { onComple
       <div className="simulation-layout" style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 12 }}>
         <div style={{ gridColumn: view === 'operator' ? 'span 8' : 'span 9' }}>
           
-          <Card title={view === 'global' ? 'Mission overview' : view === 'orbital' ? 'Orbital frame' : view === 'operator' ? 'Ground operator' : view === 'payload' ? 'Payload camera' : 'Inertial frame'}>
-            {view === 'global' && (
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
-                In 3D, Earth rotates against the stars. The 2D and oblique maps use Earth-fixed coordinates to show geographic coverage.
-              </div>
-            )}
+          <Card title={view === 'global' ? <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>Global overview<InfoPopover label="Global overview">Follow the satellite around Earth, see its orbit and ground track, and locate the configured ground stations. The ground track shows where the satellite passes over Earth's surface. In 3D, Earth rotates against the stars; the 2D and oblique maps stay aligned with Earth to show geographic coverage. Use the playback controls to follow the mission over time.</InfoPopover></span> : view === 'orbital' ? 'Orbital frame' : view === 'operator' ? 'Ground operator' : view === 'payload' ? 'Payload camera' : 'Inertial frame'}>
             <CesiumViewer active={active} scenario={scenario} simView={view} stationIndex={selectedStation} onTimeSec={seconds => { setTSec(seconds); if (scenario && seconds >= scenario.meta.durationSec) onComplete(); }} />
           </Card>
         </div>

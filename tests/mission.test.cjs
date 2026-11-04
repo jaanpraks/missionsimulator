@@ -433,3 +433,11 @@ test('yellow orbit shares spacecraft interpolation and exact anchor across bound
     }
   }
 });
+test('default mission uses an 85 degree inclination and 160 degree RAAN with a valid TLE checksum', () => {
+  const mission = createDefaultMission();
+  const elements = elementsFromTle(mission.orbit.line2);
+  assert.equal(elements.inclinationDeg, 85);
+  assert.equal(elements.raanDeg, 160);
+  assert.equal(tleChecksum(mission.orbit.line2), mission.orbit.line2);
+  validateMissionDefinition(mission);
+});

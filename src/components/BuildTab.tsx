@@ -8,18 +8,21 @@ import { fitSolarPanels, panelAreaLimit, faceIndex, DEFAULT_MASS_KG } from '../m
 import { Field, FieldValidity } from './FormField';
 import { CAMERA_PRESETS, DEFAULT_BATTERY, DEFAULT_RADIO, DEFAULT_STORAGE, imageBytes } from '../sim/resources';
 import { busPowerLoads, type BusSubsystem } from '../mission/subsystems';
-import SatellitePreview from './SatellitePreview';
+import SatelliteProfile from './SatelliteProfile';
+import SubsystemCard from './SubsystemCard';
+import InfoPopover from './InfoPopover';
+import { BODY_DIMENSIONS } from '../mission/physical';
 import { HeaderPortal } from './HeaderPortal';
 import { scrollContentToTop } from './scroll';
 import { PAYLOAD_SIDES, type PayloadSide } from '../mission/payload';
 
 const SHEETS = [
-  { id: 'mission', label: 'Mission' },
   { id: 'satellite', label: 'Satellite' },
-  { id: 'thermal', label: 'Thermal' },
+  { id: 'mission', label: 'Mission' },
   { id: 'orbit', label: 'Orbit' },
+  { id: 'thermal', label: 'Thermal' },
   { id: 'stations', label: 'Ground Stations' },
-  { id: 'json', label: 'Configuration JSON' }
+  { id: 'json', label: 'JSON' }
 ];
 const NORMALS: { label: string; value: [number, number, number] }[] = [
   { label: '+X', value: [1, 0, 0] }, { label: '-X', value: [-1, 0, 0] },
@@ -107,35 +110,37 @@ export default function BuildTab({ text, onChange, onCompile, error, active }: {
     {sheet === 'thermal' && mission && <ThermalSheet mission={mission} onUpdate={update} />}
     {sheet === 'orbit' && mission && <OrbitSheet mission={mission} onUpdate={update} />}
     {sheet === 'satellite' && mission && <>
-<Card title="Satellite systems engineering"><p className="muted">Define the six subsystems and balance their power and data needs. Continuous bus loads apply in nominal operation. Camera and COM loads apply during imaging and transmission. Safe mode uses the load configured in Mission. Existing configurations initially allocate their combined bus load to OBC; redistribute it across subsystems to refine the budget.</p><p>Continuous bus: {Object.values(busPowerLoads(mission.spacecraft)).reduce((sum, load) => sum + load, 0).toFixed(2)} W · Imaging and transmitting: {(Object.values(busPowerLoads(mission.spacecraft)).reduce((sum, load) => sum + load, 0) + mission.spacecraft.payload.loadW + (mission.spacecraft.radio ?? DEFAULT_RADIO).loadW).toFixed(2)} W</p></Card>
-<div className="satellite-build-layout"><Card title="Satellite preview"><SatellitePreview spacecraft={mission.spacecraft} /></Card><Card title="Structure"><p className="muted">Choose the CubeSat envelope. Size controls available solar-panel area. Passive structure uses 0 W; allocate power for active structural equipment here.</p><div style={grid}>
+      <SatelliteProfile mission={mission} />
+      <div className="subsystem-grid">
+        <SubsystemCard system="structure" title="Structure" subtitle="CubeSat envelope" help={<>Choose the CubeSat envelope. Size controls available solar-panel area. Structure is passive and has no electrical load.</>}><div style={grid}>
           <label style={{ fontSize: 13 }}>CubeSat size<Select aria-label="CubeSat size" value={mission.spacecraft.body.size} onChange={e => update(next => { const old=next.spacecraft.body.size; next.spacecraft.body.size = e.target.value as MissionDefinition['spacecraft']['body']['size']; fitSolarPanels(next.spacecraft); if(next.spacecraft.thermal?.massKg===DEFAULT_MASS_KG[old])next.spacecraft.thermal.massKg=DEFAULT_MASS_KG[next.spacecraft.body.size]; })}>
             {['1U', '2U', '3U', '6U'].map(size => <option key={size}>{size}</option>)}
           </Select></label>
-{busPowerField('structure', 'Structure power (W)')}</div></Card></div>
-<Card title="OBC — On-board computer"><p className="muted">Manage the mission and store camera data. Storage starts empty; images that do not fit are dropped.</p><div style={grid}>{busPowerField('obc', 'OBC power (W)')}          <Field label="Available storage (MB)" min={0.001} value={mission.spacecraft.storage?.capacityMB ?? DEFAULT_STORAGE.capacityMB} onCommit={numeric((next,value)=>{next.spacecraft.storage={capacityMB:value};})}/></div></Card>
-<Card title="COM — Telemetry and communication"><p className="muted">One radio serves ground-station contacts. Transmit power is drawn during data transfer. Mbps = 1,000,000 bits/s.</p><div style={grid}>          <Field label="Downlink speed (Mbps)" min={0} max={10000} value={mission.spacecraft.radio?.downlinkMbps ?? DEFAULT_RADIO.downlinkMbps} onCommit={numeric((next,value)=>{next.spacecraft.radio={...(next.spacecraft.radio ?? DEFAULT_RADIO),downlinkMbps:value};})}/>
-<Field label="COM transmit power (W)" min={0} value={mission.spacecraft.radio?.loadW ?? DEFAULT_RADIO.loadW} onCommit={numeric((next, value) => { next.spacecraft.radio = { ...(next.spacecraft.radio ?? DEFAULT_RADIO), loadW: value }; })} /></div></Card>
-<Card title="ADCS — Attitude determination and control system"><p className="muted">Sun pointing aims +X toward the Sun. Nadir pointing aims the selected payload face toward Earth. Pointing affects solar generation and camera orientation.</p><div style={grid}>{busPowerField('adcs', 'ADCS power (W)')}          <label style={{ fontSize: 13 }}>Attitude strategy<Select aria-label="Attitude strategy" value={mission.spacecraft.attitude?.strategy ?? 'sun-pointing'} onChange={e => update(next => { next.spacecraft.attitude = { strategy: e.target.value as 'sun-pointing' | 'nadir-pointing' }; })}>
+</div><p className="structure-dimensions">Envelope: {BODY_DIMENSIONS[mission.spacecraft.body.size].map(m => Math.round(m * 100)).join(" × ")} cm</p></SubsystemCard>
+        <SubsystemCard system="payload" title="Payload — Camera" subtitle="Imaging & observation" help={<>Resolution sets image size; capture interval sets data production. Imaging power contributes to the EPS budget.</>}><div style={grid}>          <Field label="Camera payload load (W)" min={0} value={mission.spacecraft.payload.loadW} onCommit={numeric((next, value) => { next.spacecraft.payload.loadW = value; })} />
+          <label style={{fontSize:13}}>Payload face<Select aria-label="Payload face" value={mission.spacecraft.payload.side ?? '+Z'} onChange={e=>update(next=>{next.spacecraft.payload.side=e.target.value as PayloadSide;})}>{PAYLOAD_SIDES.map(side=><option key={side}>{side}</option>)}</Select></label>
+          <label>Camera resolution<Select aria-label="Camera resolution" value={mission.spacecraft.payload.cameraPreset ?? 'bw100'} onChange={e=>update(next=>{next.spacecraft.payload.cameraPreset=e.target.value as 'bw100'|'rgb1000';})}>{Object.entries(CAMERA_PRESETS).map(([id,preset])=><option key={id} value={id}>{preset.label}</option>)}</Select></label>
+          <Field label="Image interval while imaging (s)" min={1} max={86400} value={mission.spacecraft.payload.captureIntervalSec ?? 60} onCommit={numeric((next,value)=>{next.spacecraft.payload.captureIntervalSec=value;})}/></div><InfoPopover label="Payload — Camera details">Uncompressed image: {(imageBytes(mission.spacecraft.payload.cameraPreset)/1e6).toFixed(3)} MB. One image per interval of continuous imaging. MB = 1,000,000 bytes.</InfoPopover></SubsystemCard>
+        <SubsystemCard system="obc" title="OBC" subtitle="On-board computer" help={<>Manage the mission and store camera data. Storage starts empty; images that do not fit are dropped.</>}><div style={grid}>{busPowerField('obc', 'OBC power (W)')}          <Field label="Available storage (MB)" min={0.001} value={mission.spacecraft.storage?.capacityMB ?? DEFAULT_STORAGE.capacityMB} onCommit={numeric((next,value)=>{next.spacecraft.storage={capacityMB:value};})}/></div></SubsystemCard>
+        <SubsystemCard system="com" title="COM" subtitle="Telemetry and communication" help={<>One radio serves ground-station contacts. Transmit power is drawn during data transfer. Mbps = 1,000,000 bits/s.</>}><div style={grid}>          <Field label="Downlink speed (Mbps)" min={0} max={10000} value={mission.spacecraft.radio?.downlinkMbps ?? DEFAULT_RADIO.downlinkMbps} onCommit={numeric((next,value)=>{next.spacecraft.radio={...(next.spacecraft.radio ?? DEFAULT_RADIO),downlinkMbps:value};})}/>
+<Field label="COM transmit power (W)" min={0} value={mission.spacecraft.radio?.loadW ?? DEFAULT_RADIO.loadW} onCommit={numeric((next, value) => { next.spacecraft.radio = { ...(next.spacecraft.radio ?? DEFAULT_RADIO), loadW: value }; })} /></div></SubsystemCard>
+        <SubsystemCard system="adcs" title="ADCS" subtitle="Attitude determination and control" help={<>Sun pointing aims +X toward the Sun. Nadir pointing aims the selected payload face toward Earth. Pointing affects solar generation and camera orientation.</>}><div style={grid}>{busPowerField('adcs', 'ADCS power (W)')}          <label style={{ fontSize: 13 }}>Attitude strategy<Select aria-label="Attitude strategy" value={mission.spacecraft.attitude?.strategy ?? 'sun-pointing'} onChange={e => update(next => { next.spacecraft.attitude = { strategy: e.target.value as 'sun-pointing' | 'nadir-pointing' }; })}>
             <option value="sun-pointing">Sun pointing (+X toward Sun)</option>
             <option value="nadir-pointing">Nadir pointing (payload toward Earth)</option>
           </Select></label>
-</div></Card>
-<Card title="Payload — Camera"><p className="muted">Resolution sets image size; capture interval sets data production. Imaging power contributes to the EPS budget.</p><div style={grid}>          <Field label="Camera payload load (W)" min={0} value={mission.spacecraft.payload.loadW} onCommit={numeric((next, value) => { next.spacecraft.payload.loadW = value; })} />
-          <label style={{fontSize:13}}>Payload face<Select aria-label="Payload face" value={mission.spacecraft.payload.side ?? '+Z'} onChange={e=>update(next=>{next.spacecraft.payload.side=e.target.value as PayloadSide;})}>{PAYLOAD_SIDES.map(side=><option key={side}>{side}</option>)}</Select></label>
-          <label>Camera resolution<Select aria-label="Camera resolution" value={mission.spacecraft.payload.cameraPreset ?? 'bw100'} onChange={e=>update(next=>{next.spacecraft.payload.cameraPreset=e.target.value as 'bw100'|'rgb1000';})}>{Object.entries(CAMERA_PRESETS).map(([id,preset])=><option key={id} value={id}>{preset.label}</option>)}</Select></label>
-          <Field label="Image interval while imaging (s)" min={1} max={86400} value={mission.spacecraft.payload.captureIntervalSec ?? 60} onCommit={numeric((next,value)=>{next.spacecraft.payload.captureIntervalSec=value;})}/></div><p className="muted">Uncompressed image: {(imageBytes(mission.spacecraft.payload.cameraPreset)/1e6).toFixed(3)} MB. One image per interval of continuous imaging. MB = 1,000,000 bytes.</p></Card>
-<Card title="EPS — Electrical power system"><p className="muted">Supply all subsystem loads with solar generation and batteries. EPS power covers power-management electronics; battery conversion losses are modeled separately.</p><div style={grid}>{busPowerField('eps', 'EPS power (W)')}          <Field label="Battery capacity (Wh)" min={0.001} value={mission.spacecraft.power.batteryCapacityWh} onCommit={numeric((next, value) => { next.spacecraft.power.batteryCapacityWh = value; })} />
+</div></SubsystemCard>
+        <SubsystemCard system="eps" title="EPS" subtitle="Electrical power system" help={<>Supply all subsystem loads with solar generation and batteries. EPS power covers power-management electronics; battery conversion losses are modeled separately.</>}><div style={grid}>{busPowerField('eps', 'EPS power (W)')}          <Field label="Battery capacity (Wh)" min={0.001} value={mission.spacecraft.power.batteryCapacityWh} onCommit={numeric((next, value) => { next.spacecraft.power.batteryCapacityWh = value; })} />
 
+</div><details className="subsystem-details"><summary>Battery behavior</summary><div style={grid}>
           <Field label="Initial battery charge (%)" min={0} max={100} value={(mission.spacecraft.power.battery?.initialSoc ?? DEFAULT_BATTERY.initialSoc)*100} onCommit={numeric((next,value)=>{next.spacecraft.power.battery={...(next.spacecraft.power.battery ?? DEFAULT_BATTERY),initialSoc:value/100};})}/>
           <Field label="Charge efficiency (0-1)" min={0} max={1} value={mission.spacecraft.power.battery?.chargeEfficiency ?? DEFAULT_BATTERY.chargeEfficiency} onCommit={numeric((next,value)=>{next.spacecraft.power.battery={...(next.spacecraft.power.battery ?? DEFAULT_BATTERY),chargeEfficiency:value};})}/>
           <Field label="Discharge efficiency (0-1)" min={0.001} max={1} value={mission.spacecraft.power.battery?.dischargeEfficiency ?? DEFAULT_BATTERY.dischargeEfficiency} onCommit={numeric((next,value)=>{next.spacecraft.power.battery={...(next.spacecraft.power.battery ?? DEFAULT_BATTERY),dischargeEfficiency:value};})}/>
           <Field label="Maximum charge power (W)" min={0} value={mission.spacecraft.power.battery?.maxChargeW ?? DEFAULT_BATTERY.maxChargeW} onCommit={numeric((next,value)=>{next.spacecraft.power.battery={...(next.spacecraft.power.battery ?? DEFAULT_BATTERY),maxChargeW:value};})}/>
           <Field label="Maximum discharge power (W)" min={0} value={mission.spacecraft.power.battery?.maxDischargeW ?? DEFAULT_BATTERY.maxDischargeW} onCommit={numeric((next,value)=>{next.spacecraft.power.battery={...(next.spacecraft.power.battery ?? DEFAULT_BATTERY),maxDischargeW:value};})}/>
         </div>
-        <p className="muted">Solar generation supplies current loads first. Surplus charges the battery; deficits discharge it. Capacity and power limits are enforced. Unmet demand is recorded and imaging/transmission pause during power shortages.</p>
-      <h3 style={{ fontSize: 14 }}>Solar panels</h3>
-        <p className="muted">Body-mounted panels share 80% of each face. Each deployable leaf is limited to 80% of its corresponding face; add leaves for larger arrays. Custom normals use the closest body face. Size changes shrink panels to fit and update mass only if it still matches the old default.</p>
+        <InfoPopover label="Battery behavior">Solar generation supplies current loads first. Surplus charges the battery; deficits discharge it. Capacity and power limits are enforced. Unmet demand is recorded and imaging/transmission pause during power shortages.</InfoPopover>
+</details><details className="subsystem-details"><summary>Solar panels ({mission.spacecraft.power.solarPanels.length})</summary>
+        <InfoPopover label="Solar panel sizing">Body-mounted panels share 80% of each face. Each deployable leaf is limited to 80% of its corresponding face; add leaves for larger arrays. Custom normals use the closest body face. Size changes shrink panels to fit and update mass only if it still matches the old default.</InfoPopover>
         <p style={{ fontSize: 13 }}>Total panel area: {mission.spacecraft.power.solarPanels.reduce((area, p) => area + p.areaM2, 0).toFixed(3)} m²</p>
         {mission.spacecraft.power.solarPanels.map((panel, i) => {
           const normal = NORMALS.find(n => n.value.every((v, k) => v === panel.normalBody[k]));
@@ -150,16 +155,17 @@ export default function BuildTab({ text, onChange, onCompile, error, active }: {
                 {NORMALS.map(n => <option key={n.label}>{n.label}</option>)}
               </Select></label>
             </div>
-            <p className="muted">Face area limit: {panelAreaLimit(mission.spacecraft.body.size,panel.normalBody).toFixed(4)} m² (80%). Body-mounted panels on this face share the limit.</p>
+            <InfoPopover label={`${panel.id} face area`}>Face area limit: {panelAreaLimit(mission.spacecraft.body.size,panel.normalBody).toFixed(4)} m² (80%). Body-mounted panels on this face share the limit.</InfoPopover>
             <div style={{ marginTop: 12 }}><Button variant="ghost" onClick={() => update(next => { next.spacecraft.power.solarPanels.splice(i, 1); })}>Remove {panel.id}</Button></div>
           </fieldset>;
         })}
         {!mission.spacecraft.power.solarPanels.length && <p>No panels configured.</p>}
         <Button onClick={addPanel}>Add solar panel</Button>
-      </Card>
+      </details></SubsystemCard>
+      </div>
     </>}
     {sheet === 'stations' && mission && <>
-      <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>These stations appear on Earth and in the Operator camera and antenna plot. Changes apply when leaving a field or pressing Enter.</p>
+      <InfoPopover label="Ground stations">These stations appear on Earth and in the Operator camera and antenna plot. Changes apply when leaving a field or pressing Enter.</InfoPopover>
       {mission.groundStations.map((station, i) => <Card key={station.id} title={station.id}>
         <div style={grid}>
           <Field label={`${station.id} name`} type="text" value={station.name} onCommit={value => update(next => { next.groundStations[i].name = value; })} />
@@ -174,7 +180,7 @@ export default function BuildTab({ text, onChange, onCompile, error, active }: {
       <div><Button onClick={addStation}>Add ground station</Button></div>
     </>}
     {sheet === 'json' && <Card title="Mission definition JSON">
-      <p style={{ color: '#94a3b8', fontSize: 13 }}>Full configuration, including orbit, simulation settings and operations. Valid manual edits appear in the other sheets automatically. Incomplete drafts are preserved.</p>
+      <InfoPopover label="Configuration JSON">Full configuration, including orbit, simulation settings and operations. Valid manual edits appear in the other sheets automatically. Incomplete drafts are preserved.</InfoPopover>
       <textarea aria-label="Mission definition JSON" spellCheck={false} value={text} onChange={e => { onChange(e.target.value); setFormError(null); }} style={{ boxSizing: 'border-box', width: '100%', minHeight: 620, resize: 'vertical', padding: 12, background: '#020617', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 8, fontFamily: 'monospace' }} />
       {parsed.error && <p role="alert" style={{ color: '#fca5a5' }}>{parsed.error}</p>}
       {parsed.error?.includes('80%') && <Button onClick={repairPanels}>Fit solar panels</Button>}

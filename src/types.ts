@@ -1,4 +1,4 @@
-export type TabId = 'build' | 'simulate' | 'analyze';
+export type TabId = 'start' | 'build' | 'simulate' | 'analyze' | 'challenges';
 export type SimViewId = 'global' | 'orbital' | 'operator' | 'satInertial' | 'payload';
 
 import type { MissionDefinition } from './mission/definition';

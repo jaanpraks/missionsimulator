@@ -67,7 +67,7 @@ export function createDefaultMission(): MissionDefinition {
     orbit: {
       type: 'tle',
       line1: '1 25544U 98067A   24001.50000000  .00016717  00000+0  10270-3 0  9991',
-      line2: '2 25544  51.6435  90.0000 0005000  10.0000  80.0000 15.50000000  9991'
+      line2: '2 25544  85.0000 160.0000 0005000  10.0000  80.0000 15.50000000  9994'
     },
     simulation: {
       // Match the example TLE epoch instead of propagating an old TLE to today.

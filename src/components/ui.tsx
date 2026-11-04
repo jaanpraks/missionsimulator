@@ -1,6 +1,6 @@
 import React from 'react';
 
-export function Card({ title, children }: { title: string; children: React.ReactNode }) {
+export function Card({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="panel-card" style={{ border: '1px solid #1f2937', borderRadius: 12, background: 'rgba(15, 23, 42, 0.6)', padding: 12 }}>
       <div style={{ fontWeight: 700, fontSize: 14 }}>{title}</div>

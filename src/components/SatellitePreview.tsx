@@ -1,3 +1,4 @@
+import InfoPopover from './InfoPopover';
 import React, { useMemo, useState } from 'react';
 import type { MissionDefinition } from '../mission/definition';
 import { satelliteGeometry } from '../mission/geometry';
@@ -26,7 +27,7 @@ export default function SatellitePreview({ spacecraft }: { spacecraft: MissionDe
     });
   }).sort((a,b)=>a.depth-b.depth);
   return <div>
-    <svg viewBox="0 0 480 280" role="img" aria-label={`${spacecraft.body.size} CubeSat design with configured solar panels and body axes`} style={{width:'100%',maxHeight:300,display:'block',background:'#020617',borderRadius:12}}>
+    <svg viewBox="0 0 480 280" role="img" aria-label={`${spacecraft.body.size} CubeSat design with configured solar panels and body axes`} style={{width:'100%',maxHeight:400,display:'block',background:'#020617',borderRadius:12}}>
       <text x="18" y="25" fill="#94a3b8" fontSize="12">{spacecraft.body.size} · Conceptual assembly</text>
       {faces.map((face,i)=><polygon key={i} points={face.points} fill={face.color} />)}
       {([[1,0,0],[0,1,0],[0,0,1]] as Vec3[]).map((axis,i)=>{
@@ -36,6 +37,6 @@ export default function SatellitePreview({ spacecraft }: { spacecraft: MissionDe
       <text x="18" y="260" fill="#94a3b8" fontSize="11">Blue grids: solar cells · Cyan camera: {spacecraft.payload.side ?? '+Z'}</text>
     </svg>
     <label style={{display:'flex',alignItems:'center',gap:12,fontSize:12,marginTop:8}}>Rotate preview <input aria-label="Satellite preview rotation" type="range" min="0" max="360" value={angle} onChange={e=>setAngle(Number(e.target.value))} style={{flex:1}} /></label>
-    <p style={{fontSize:12,color:'#94a3b8'}}>Body-frame preview. Sun pointing aims +X at the Sun; nadir pointing aims the selected payload face toward Earth. Payload face: {spacecraft.payload.side ?? '+Z'}. Body-mounted cells are fitted to their face; panel area remains defined by the configuration.</p>
+    <InfoPopover label="Satellite preview">Body-frame preview. Sun pointing aims +X at the Sun; nadir pointing aims the selected payload face toward Earth. Payload face: {spacecraft.payload.side ?? '+Z'}. Body-mounted cells are fitted to their face; panel area remains defined by the configuration.</InfoPopover>
   </div>;
 }
