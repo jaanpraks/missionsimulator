@@ -126,3 +126,20 @@ test('empty battery blocks camera initially and solar recharge restores operatio
   assert.ok(states.at(-1).imagesCaptured>0);
   assert.ok(states.at(-1).downloadedBytes>0);
 });
+
+test('subsystem bus allocations drive nominal demand and preserve safe-mode demand',()=>{
+  const {validateMissionDefinition}=require('../src/mission/definition.ts');
+  const mission=createDefaultMission();
+  assert.equal(operationAt(mission,0,6000).busLoadW,8);
+  mission.spacecraft.power.subsystemLoadsW={obc:3,adcs:4,eps:1,structure:0.5};
+  validateMissionDefinition(mission);
+  assert.equal(operationAt(mission,0,6000).busLoadW,8.5);
+  mission.operations=[{startSec:0,endSec:10,mode:'imaging'}];
+  assert.equal(operationAt(mission,0,6000).totalLoadW,20.5);
+  mission.operations=[{startSec:0,endSec:10,mode:'safe'}];
+  assert.equal(operationAt(mission,0,6000).busLoadW,2);
+  for(const value of [-1,NaN,Infinity,undefined]) {
+    mission.spacecraft.power.subsystemLoadsW.adcs=value;
+    assert.throws(()=>validateMissionDefinition(mission),/subsystemLoadsW.adcs/);
+  }
+});

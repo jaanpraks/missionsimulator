@@ -37,7 +37,9 @@ export type MissionDefinition = {
       }[];
       batteryCapacityWh: number;
       battery?: { initialSoc: number; chargeEfficiency: number; dischargeEfficiency: number; maxChargeW: number; maxDischargeW: number };
+      /** Legacy total; subsystem allocations take precedence when present. */
       baseLoadW: number;
+      subsystemLoadsW?: { obc: number; adcs: number; eps: number; structure: number };
     };
     payload: { type: 'camera'; loadW: number; side?: PayloadSide; cameraPreset?: 'bw100' | 'rgb1000'; captureIntervalSec?: number };
     radio?: { downlinkMbps: number; loadW: number };
@@ -150,6 +152,10 @@ export function validateMissionDefinition(value: unknown): asserts value is Miss
   const power = object(spacecraft.power, 'spacecraft.power');
   number(power.batteryCapacityWh, 'spacecraft.power.batteryCapacityWh', 0.001);
   number(power.baseLoadW, 'spacecraft.power.baseLoadW', 0);
+  if (power.subsystemLoadsW !== undefined) {
+    const loads = object(power.subsystemLoadsW, 'spacecraft.power.subsystemLoadsW');
+    for (const key of ['obc', 'adcs', 'eps', 'structure']) number(loads[key], 'spacecraft.power.subsystemLoadsW.' + key, 0);
+  }
   if (power.battery !== undefined) {
     const battery = object(power.battery, 'spacecraft.power.battery');
     number(battery.initialSoc, 'spacecraft.power.battery.initialSoc', 0, 1);

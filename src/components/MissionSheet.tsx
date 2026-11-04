@@ -1,3 +1,4 @@
+import { busPowerLoads } from '../mission/subsystems';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import type { MissionDefinition } from '../mission/definition';
 import { defaultMissionPlan, missionTiming, operationAt, validateOperationSchedule } from '../sim/operations';
@@ -42,7 +43,7 @@ export default function MissionSheet({mission,onUpdate}: {
   const imagingSec=segments.filter(s=>s.mode==='imaging').reduce((sum,s)=>sum+s.end-s.start,0);
   const latestEnd=mission.operations.reduce((end,op)=>Math.max(end,op.endSec),0);
   const points=[0,...sorted.flatMap(op=>[op.startSec,op.endSec]),limit].filter(t=>t>=0 && t<=limit).sort((a,b)=>a-b);
-  const maxLoad=Math.max(1,mission.spacecraft.power.baseLoadW+mission.spacecraft.payload.loadW,plan.safeLoadW)*1.2;
+  const maxLoad=Math.max(1,Object.values(busPowerLoads(mission.spacecraft)).reduce((sum, load) => sum + load, 0)+mission.spacecraft.payload.loadW,plan.safeLoadW)*1.2;
   const x=(t:number)=>60+t/limit*790;
   const y=(load:number)=>215-load/maxLoad*85;
   let loadPath='';
@@ -67,7 +68,7 @@ export default function MissionSheet({mission,onUpdate}: {
     <Card title="Operating modes and electrical demand">
       <div style={grid}>
         <label>Default operating mode<Select aria-label="Default operating mode" value={plan.defaultMode} onChange={e=>changePlan({defaultMode:e.target.value as 'nominal'|'safe'})}><option value="nominal">Nominal</option><option value="safe">Safe</option></Select></label>
-        <Field label="Nominal bus load (W)" min={0} value={mission.spacecraft.power.baseLoadW} onCommit={numeric((next,value)=>{next.spacecraft.power.baseLoadW=value;})}/>
+        <p className="muted">Nominal bus load: {Object.values(busPowerLoads(mission.spacecraft)).reduce((sum, load) => sum + load, 0).toFixed(2)} W. Set subsystem power allocations in Satellite.</p>
         <Field label="Safe mode load (W)" min={0} value={plan.safeLoadW} onCommit={numeric((next,value)=>{next.missionPlan={...(next.missionPlan ?? defaultMissionPlan),safeLoadW:value};})}/>
         <Field label="Payload additional load (W)" min={0} value={mission.spacecraft.payload.loadW} onCommit={numeric((next,value)=>{next.spacecraft.payload.loadW=value;})}/>
         <Field label="Downlink radio load (W)" min={0} value={mission.spacecraft.radio?.loadW ?? DEFAULT_RADIO.loadW} onCommit={numeric((next,value)=>{next.spacecraft.radio={...(next.spacecraft.radio ?? DEFAULT_RADIO),loadW:value};})}/>
