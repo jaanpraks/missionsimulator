@@ -8,6 +8,7 @@ import { payloadFrame } from '../mission/payload';
 import { createOrbitDisplay } from '../sim/orbitCurve';
 import { stationLook } from '../sim/station';
 import { orbitalFrameAxes, ORBITAL_CAMERA_OFFSET, SATELLITE_DISPLAY_RADIUS_M } from '../sim/orbitalFrame';
+import { addSpaceEnvironment, earthFixedSunDirection, magneticTilt } from './spaceEnvironment';
 
 type Props = {
   active: boolean;
@@ -18,11 +19,11 @@ type Props = {
 };
 
 function addMagneticField(viewer: C.Viewer) {
-  const field = viewer.entities.add({ name: 'Schematic Earth magnetic field', show: false });
+  const field = viewer.entities.add({ name: 'Schematic Earth magnetic field' });
   const earthRadius = C.Ellipsoid.WGS84.maximumRadius;
-  const tilt = C.Matrix3.fromRotationY(C.Math.toRadians(10));
   const material = C.Color.fromCssColorString('#c4a5ff').withAlpha(0.5);
   const segments = 128;
+  const lines: { dipole: C.Cartesian3[]; positions: C.ConstantProperty }[] = [];
   const shells = [
     { equatorRadii: 1.35, meridians: 6 },
     { equatorRadii: 1.8, meridians: 6 },
@@ -37,7 +38,7 @@ function addMagneticField(viewer: C.Viewer) {
     const footpointLatitude = Math.acos(Math.sqrt(C.Ellipsoid.WGS84.minimumRadius / equatorRadius));
     for (let meridian = 0; meridian < meridians; meridian++) {
       const longitude = meridian * C.Math.TWO_PI / meridians;
-      const positions = Array.from({ length: segments + 1 }, (_, index) => {
+      const dipole = Array.from({ length: segments + 1 }, (_, index) => {
         const latitude = footpointLatitude * (2 * index / segments - 1);
         const cosLatitude = Math.cos(latitude);
         const radius = equatorRadius * cosLatitude ** 2;
@@ -46,8 +47,10 @@ function addMagneticField(viewer: C.Viewer) {
           radius * cosLatitude * Math.sin(longitude),
           radius * Math.sin(latitude)
         );
-        return C.Matrix3.multiplyByVector(tilt, position, position);
+        return C.Matrix3.multiplyByVector(magneticTilt, position, position);
       });
+      const positions = new C.ConstantProperty(dipole);
+      lines.push({ dipole, positions });
       viewer.entities.add({
         parent: field,
         name: field.name,
@@ -55,19 +58,47 @@ function addMagneticField(viewer: C.Viewer) {
       });
     }
   }
-  return field;
+  const sunward = new C.Cartesian3();
+  const rotation = new C.Matrix3();
+  let lastUpdate: C.JulianDate | undefined;
+  const update = (time: C.JulianDate) => {
+    if (lastUpdate && Math.abs(C.JulianDate.secondsDifference(time, lastUpdate)) < 60) return;
+    lastUpdate = C.JulianDate.clone(time, lastUpdate);
+    earthFixedSunDirection(time, sunward, rotation);
+    for (const { dipole, positions } of lines) {
+      positions.setValue(dipole.map(point => {
+        const radius = C.Cartesian3.magnitude(point);
+        const dayside = Math.max(0, C.Cartesian3.dot(point, sunward) / radius);
+        const altitude = Math.max(0, radius - earthRadius);
+        // Keep the footpoints anchored and make compression strongest on the outer dayside.
+        const outerWeight = C.Math.clamp(altitude / (6 * earthRadius), 0, 1);
+        const displacement = 0.32 * dayside ** 2 * outerWeight * altitude;
+        return C.Cartesian3.multiplyByScalar(point, 1 - displacement / radius, new C.Cartesian3());
+      }));
+    }
+  };
+  update(viewer.clock.currentTime);
+  const removeUpdate = viewer.scene.preUpdate.addEventListener((_scene: C.Scene, time: C.JulianDate) => update(time));
+  return () => {
+    if (viewer.isDestroyed()) return;
+    removeUpdate();
+    for (const child of viewer.entities.values.filter(entity => entity.parent === field)) {
+      viewer.entities.remove(child);
+    }
+    viewer.entities.remove(field);
+  };
 }
 
 export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTimeSec, active }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<C.Viewer | null>(null);
-  const magneticFieldRef = useRef<C.Entity | null>(null);
   const [source, setSource] = useState<C.CzmlDataSource | null>(null);
   const [playing, setPlaying] = useState(false);
   const [timeSec, setTimeSec] = useState(0);
   const [speed, setSpeed] = useState(60);
   const [projection, setProjection] = useState<'3d' | '2d'>('3d');
   const [showMagneticField, setShowMagneticField] = useState(false);
+  const [showRadiationBelts, setShowRadiationBelts] = useState(false);
   const [operatorTracking, setOperatorTracking] = useState(true);
   const [operatorHeading, setOperatorHeading] = useState(0);
   const [ground, setGround] = useState(true);
@@ -90,18 +121,21 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
     viewerRef.current = viewer;
     return () => {
       viewerRef.current = null;
-      magneticFieldRef.current = null;
       viewer.destroy();
     };
   }, []);
 
+  const showFieldLines = active && !!source && simView === 'global' && projection === '3d' && showMagneticField;
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewer) return;
-    const visible = active && !!source && simView === 'global' && projection === '3d' && showMagneticField;
-    if (visible && !magneticFieldRef.current) magneticFieldRef.current = addMagneticField(viewer);
-    if (magneticFieldRef.current) magneticFieldRef.current.show = visible;
-  }, [active, source, simView, projection, showMagneticField]);
+    if (viewer && showFieldLines) return addMagneticField(viewer);
+  }, [showFieldLines]);
+
+  const showSpaceEnvironment = active && simView === 'global' && projection === '3d' && showRadiationBelts;
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (viewer && showSpaceEnvironment) return addSpaceEnvironment(viewer.scene);
+  }, [showSpaceEnvironment]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -405,8 +439,11 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
       <label style={{ color: '#ffcf5c' }}><input type="checkbox" checked={orbit} onChange={e => setOrbit(e.target.checked)} /> Orbit at altitude</label>
       {simView === 'operator' && <><label><input type="checkbox" aria-label="Track satellite from station" checked={operatorTracking} onChange={e=>setOperatorTracking(e.target.checked)} /> Track satellite</label><span className="operator-bearing">Looking {Math.round(operatorHeading)%360} deg | {operatorTracking ? 'Fixed station: tracking above antenna mask; otherwise North' : 'North horizon'}</span></>}
       {simView === 'global' && <>
-        {projection === '3d' && <label style={{ color: '#c4a5ff' }} title="Schematic Earth magnetic field. Zoom out to see the outer arcs.">
+        {projection === '3d' && <label style={{ color: '#c4a5ff' }} title="Solar wind compresses the magnetic field on the Sun-facing side. Zoom out to compare the outer arcs.">
           <input type="checkbox" checked={showMagneticField} onChange={e => setShowMagneticField(e.target.checked)} /> Magnetic field lines
+        </label>}
+        {projection === '3d' && <label style={{ color: '#a6d7ff' }} title="Schematic radiation belts and magnetopause glow. Zoom out to see the magnetotail.">
+          <input type="checkbox" checked={showRadiationBelts} onChange={e => setShowRadiationBelts(e.target.checked)} /> Radiation belts
         </label>}
         <label>Projection <select aria-label="Global projection" value={projection} onChange={e => setProjection(e.target.value === '2d' ? '2d' : '3d')}>
           <option value="3d">3D (star-fixed)</option>
