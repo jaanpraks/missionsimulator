@@ -26,14 +26,20 @@ const beltGlow = `
   material.alpha = 0.29 * inner + 0.23 * outer;
 `;
 
+const magnetosphereWidth = 52;
+const magnetosphereHeight = 38;
+const magnetosphereCenterX = -14;
 const magnetosphereGlow = `
-  vec2 p = (materialInput.st - 0.5) * vec2(46.0, 38.0) + vec2(-11.0, 0.0);
-  // Rounded dayside at +10 Earth radii with a gradually flaring nightside.
+  vec2 p = (materialInput.st - 0.5) * vec2(${magnetosphereWidth}.0, ${magnetosphereHeight}.0)
+           + vec2(${magnetosphereCenterX}.0, 0.0);
+  // Rounded dayside at +10 Earth radii, with a taper to the nightside tip.
   float boundary = 10.0 - p.y * p.y * (0.075 + 0.00015 * p.y * p.y);
   float distance = (p.x - boundary) / (1.0 + 0.13 * abs(p.y));
+  float tailHalfWidth = 19.0 * clamp((p.x + 40.0) / 28.0, 0.0, 1.0);
+  distance = max(distance, abs(p.y) - tailHalfWidth);
   float rim = exp(-pow(abs(distance) / 0.85, 2.0));
   float inside = 1.0 - smoothstep(-2.5, 0.0, distance);
-  float tailFade = smoothstep(-32.0, -12.0, p.x);
+  float tailFade = smoothstep(-40.0, -12.0, p.x);
   float outsideEarth = smoothstep(1.0, 2.5, length(p));
   float edgeFade = 1.0 - smoothstep(17.0, 19.0, abs(p.y));
   material.diffuse = vec3(0.32, 0.75, 1.0);
@@ -77,7 +83,9 @@ export function addSpaceEnvironment(scene: C.Scene) {
   const layer = scene.primitives.add(new C.PrimitiveCollection());
   const belts = layer.add(crossedGlow(16, 10, 0, beltGlow, false));
   belts.modelMatrix = C.Matrix4.fromRotationTranslation(magneticTilt);
-  const magnetosphere = layer.add(crossedGlow(46, 38, -11, magnetosphereGlow, true));
+  const magnetosphere = layer.add(crossedGlow(
+    magnetosphereWidth, magnetosphereHeight, magnetosphereCenterX, magnetosphereGlow, true
+  ));
 
   const sunward = new C.Cartesian3();
   const across = new C.Cartesian3();

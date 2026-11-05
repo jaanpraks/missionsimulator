@@ -19,11 +19,15 @@ type Props = {
 };
 
 function addMagneticField(viewer: C.Viewer) {
-  const field = viewer.entities.add({ name: 'Schematic Earth magnetic field' });
+  const field = viewer.scene.primitives.add(new C.PolylineCollection());
   const earthRadius = C.Ellipsoid.WGS84.maximumRadius;
-  const material = C.Color.fromCssColorString('#c4a5ff').withAlpha(0.5);
-  const segments = 128;
-  const lines: { dipole: C.Cartesian3[]; positions: C.ConstantProperty }[] = [];
+  const color = C.Color.fromCssColorString('#c4a5ff').withAlpha(0.5);
+  const segments = 64;
+  const lines: {
+    polyline: C.Polyline;
+    positions: C.Cartesian3[];
+    samples: { direction: C.Cartesian3; radius: number; outerAltitude: number }[];
+  }[] = [];
   const shells = [
     { equatorRadii: 1.35, meridians: 6 },
     { equatorRadii: 1.8, meridians: 6 },
@@ -38,43 +42,60 @@ function addMagneticField(viewer: C.Viewer) {
     const footpointLatitude = Math.acos(Math.sqrt(C.Ellipsoid.WGS84.minimumRadius / equatorRadius));
     for (let meridian = 0; meridian < meridians; meridian++) {
       const longitude = meridian * C.Math.TWO_PI / meridians;
-      const dipole = Array.from({ length: segments + 1 }, (_, index) => {
+      const samples = Array.from({ length: segments + 1 }, (_, index) => {
         const latitude = footpointLatitude * (2 * index / segments - 1);
         const cosLatitude = Math.cos(latitude);
         const radius = equatorRadius * cosLatitude ** 2;
-        const position = new C.Cartesian3(
-          radius * cosLatitude * Math.cos(longitude),
-          radius * cosLatitude * Math.sin(longitude),
-          radius * Math.sin(latitude)
+        const direction = new C.Cartesian3(
+          cosLatitude * Math.cos(longitude),
+          cosLatitude * Math.sin(longitude),
+          Math.sin(latitude)
         );
-        return C.Matrix3.multiplyByVector(magneticTilt, position, position);
+        C.Matrix3.multiplyByVector(magneticTilt, direction, direction);
+        const altitude = Math.max(0, radius - earthRadius);
+        // Anchor the footpoints and make the deformation strongest on the outer shells.
+        const outerAltitude = C.Math.clamp(altitude / (6 * earthRadius), 0, 1) * altitude;
+        return { direction, radius, outerAltitude };
       });
-      const positions = new C.ConstantProperty(dipole);
-      lines.push({ dipole, positions });
-      viewer.entities.add({
-        parent: field,
-        name: field.name,
-        polyline: { positions, width: 1.5, arcType: C.ArcType.NONE, material }
+      const positions = samples.map(({ direction, radius }) =>
+        C.Cartesian3.multiplyByScalar(direction, radius, new C.Cartesian3())
+      );
+      const polyline = field.add({
+        positions,
+        width: 1.5,
+        material: C.Material.fromType('Color', { color })
       });
+      lines.push({ polyline, positions, samples });
     }
   }
   const sunward = new C.Cartesian3();
   const rotation = new C.Matrix3();
+  const tailOffset = new C.Cartesian3();
   let lastUpdate: C.JulianDate | undefined;
+  let lastUpdateMs = -Infinity;
   const update = (time: C.JulianDate) => {
-    if (lastUpdate && Math.abs(C.JulianDate.secondsDifference(time, lastUpdate)) < 60) return;
+    const now = performance.now();
+    if (now - lastUpdateMs < 250) return;
+    if (lastUpdate) {
+      const elapsed = Math.abs(C.JulianDate.secondsDifference(time, lastUpdate));
+      if (elapsed === 0 || (viewer.clock.shouldAnimate && elapsed < 60)) return;
+    }
     lastUpdate = C.JulianDate.clone(time, lastUpdate);
+    lastUpdateMs = now;
     earthFixedSunDirection(time, sunward, rotation);
-    for (const { dipole, positions } of lines) {
-      positions.setValue(dipole.map(point => {
-        const radius = C.Cartesian3.magnitude(point);
-        const dayside = Math.max(0, C.Cartesian3.dot(point, sunward) / radius);
-        const altitude = Math.max(0, radius - earthRadius);
-        // Keep the footpoints anchored and make compression strongest on the outer dayside.
-        const outerWeight = C.Math.clamp(altitude / (6 * earthRadius), 0, 1);
-        const displacement = 0.32 * dayside ** 2 * outerWeight * altitude;
-        return C.Cartesian3.multiplyByScalar(point, 1 - displacement / radius, new C.Cartesian3());
-      }));
+    for (const { polyline, positions, samples } of lines) {
+      for (let index = 0; index < samples.length; index++) {
+        const { direction, radius, outerAltitude } = samples[index];
+        const sunAlignment = C.Cartesian3.dot(direction, sunward);
+        const dayside = Math.max(0, sunAlignment);
+        const nightside = Math.max(0, -sunAlignment);
+        const position = positions[index];
+        C.Cartesian3.multiplyByScalar(direction, radius - 0.32 * dayside ** 2 * outerAltitude, position);
+        // Stretch along the anti-solar axis so the nightside elongates without widening.
+        C.Cartesian3.multiplyByScalar(sunward, -0.4 * nightside ** 2 * outerAltitude, tailOffset);
+        C.Cartesian3.add(position, tailOffset, position);
+      }
+      polyline.positions = positions;
     }
   };
   update(viewer.clock.currentTime);
@@ -82,10 +103,7 @@ function addMagneticField(viewer: C.Viewer) {
   return () => {
     if (viewer.isDestroyed()) return;
     removeUpdate();
-    for (const child of viewer.entities.values.filter(entity => entity.parent === field)) {
-      viewer.entities.remove(child);
-    }
-    viewer.entities.remove(field);
+    viewer.scene.primitives.remove(field);
   };
 }
 
@@ -439,7 +457,7 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
       <label style={{ color: '#ffcf5c' }}><input type="checkbox" checked={orbit} onChange={e => setOrbit(e.target.checked)} /> Orbit at altitude</label>
       {simView === 'operator' && <><label><input type="checkbox" aria-label="Track satellite from station" checked={operatorTracking} onChange={e=>setOperatorTracking(e.target.checked)} /> Track satellite</label><span className="operator-bearing">Looking {Math.round(operatorHeading)%360} deg | {operatorTracking ? 'Fixed station: tracking above antenna mask; otherwise North' : 'North horizon'}</span></>}
       {simView === 'global' && <>
-        {projection === '3d' && <label style={{ color: '#c4a5ff' }} title="Solar wind compresses the magnetic field on the Sun-facing side. Zoom out to compare the outer arcs.">
+        {projection === '3d' && <label style={{ color: '#c4a5ff' }} title="Solar wind compresses the Sun-facing field and stretches the opposite side into a tail. Zoom out to compare the outer arcs.">
           <input type="checkbox" checked={showMagneticField} onChange={e => setShowMagneticField(e.target.checked)} /> Magnetic field lines
         </label>}
         {projection === '3d' && <label style={{ color: '#a6d7ff' }} title="Schematic radiation belts and magnetopause glow. Zoom out to see the magnetotail.">
