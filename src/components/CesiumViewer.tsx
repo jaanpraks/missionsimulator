@@ -17,14 +17,57 @@ type Props = {
   onTimeSec?: (tSec: number) => void;
 };
 
+function addMagneticField(viewer: C.Viewer) {
+  const field = viewer.entities.add({ name: 'Schematic Earth magnetic field', show: false });
+  const earthRadius = C.Ellipsoid.WGS84.maximumRadius;
+  const tilt = C.Matrix3.fromRotationY(C.Math.toRadians(10));
+  const material = C.Color.fromCssColorString('#c4a5ff').withAlpha(0.5);
+  const segments = 128;
+  const shells = [
+    { equatorRadii: 1.35, meridians: 6 },
+    { equatorRadii: 1.8, meridians: 6 },
+    { equatorRadii: 3.4, meridians: 4 },
+    { equatorRadii: 8, meridians: 4 }
+  ];
+
+  for (const { equatorRadii, meridians } of shells) {
+    const equatorRadius = equatorRadii * earthRadius;
+    // For r = L cos²(latitude), larger L brings the feet closer to the poles
+    // and makes the line steeper at the surface. Let the globe clip the ends.
+    const footpointLatitude = Math.acos(Math.sqrt(C.Ellipsoid.WGS84.minimumRadius / equatorRadius));
+    for (let meridian = 0; meridian < meridians; meridian++) {
+      const longitude = meridian * C.Math.TWO_PI / meridians;
+      const positions = Array.from({ length: segments + 1 }, (_, index) => {
+        const latitude = footpointLatitude * (2 * index / segments - 1);
+        const cosLatitude = Math.cos(latitude);
+        const radius = equatorRadius * cosLatitude ** 2;
+        const position = new C.Cartesian3(
+          radius * cosLatitude * Math.cos(longitude),
+          radius * cosLatitude * Math.sin(longitude),
+          radius * Math.sin(latitude)
+        );
+        return C.Matrix3.multiplyByVector(tilt, position, position);
+      });
+      viewer.entities.add({
+        parent: field,
+        name: field.name,
+        polyline: { positions, width: 1.5, arcType: C.ArcType.NONE, material }
+      });
+    }
+  }
+  return field;
+}
+
 export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTimeSec, active }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<C.Viewer | null>(null);
+  const magneticFieldRef = useRef<C.Entity | null>(null);
   const [source, setSource] = useState<C.CzmlDataSource | null>(null);
   const [playing, setPlaying] = useState(false);
   const [timeSec, setTimeSec] = useState(0);
   const [speed, setSpeed] = useState(60);
-  const [projection, setProjection] = useState('3d');
+  const [projection, setProjection] = useState<'3d' | '2d'>('3d');
+  const [showMagneticField, setShowMagneticField] = useState(false);
   const [operatorTracking, setOperatorTracking] = useState(true);
   const [operatorHeading, setOperatorHeading] = useState(0);
   const [ground, setGround] = useState(true);
@@ -45,8 +88,20 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
     });
     viewer.scene.globe.enableLighting = true;
     viewerRef.current = viewer;
-    return () => { viewerRef.current = null; viewer.destroy(); };
+    return () => {
+      viewerRef.current = null;
+      magneticFieldRef.current = null;
+      viewer.destroy();
+    };
   }, []);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const visible = active && !!source && simView === 'global' && projection === '3d' && showMagneticField;
+    if (visible && !magneticFieldRef.current) magneticFieldRef.current = addMagneticField(viewer);
+    if (magneticFieldRef.current) magneticFieldRef.current.show = visible;
+  }, [active, source, simView, projection, showMagneticField]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -208,7 +263,6 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
     viewer.trackedEntity = undefined;
     const mode = simView === 'global' ? projection : '3d';
     if (mode === '2d') viewer.scene.morphTo2D(0);
-    else if (mode === 'columbus') viewer.scene.morphToColumbusView(0);
     else viewer.scene.morphTo3D(0);
     viewer.scene.screenSpaceCameraController.enableInputs = simView === 'global';
     if (camera.frustum instanceof C.PerspectiveFrustum) camera.frustum.fov = C.Math.toRadians(simView === 'payload' ? 35 : 60);
@@ -350,7 +404,15 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
       <label style={{ color: '#44ebd3' }}><input type="checkbox" checked={ground} onChange={e => setGround(e.target.checked)} /> Ground track</label>
       <label style={{ color: '#ffcf5c' }}><input type="checkbox" checked={orbit} onChange={e => setOrbit(e.target.checked)} /> Orbit at altitude</label>
       {simView === 'operator' && <><label><input type="checkbox" aria-label="Track satellite from station" checked={operatorTracking} onChange={e=>setOperatorTracking(e.target.checked)} /> Track satellite</label><span className="operator-bearing">Looking {Math.round(operatorHeading)%360} deg | {operatorTracking ? 'Fixed station: tracking above antenna mask; otherwise North' : 'North horizon'}</span></>}
-      {simView === 'global' && <label>Projection <select aria-label="Global projection" value={projection} onChange={e => setProjection(e.target.value)}><option value="3d">3D (star-fixed)</option><option value="2d">2D map (Earth-fixed)</option><option value="columbus">Oblique map (Earth-fixed)</option></select></label>}
+      {simView === 'global' && <>
+        {projection === '3d' && <label style={{ color: '#c4a5ff' }} title="Schematic Earth magnetic field. Zoom out to see the outer arcs.">
+          <input type="checkbox" checked={showMagneticField} onChange={e => setShowMagneticField(e.target.checked)} /> Magnetic field lines
+        </label>}
+        <label>Projection <select aria-label="Global projection" value={projection} onChange={e => setProjection(e.target.value === '2d' ? '2d' : '3d')}>
+          <option value="3d">3D (star-fixed)</option>
+          <option value="2d">2D map (Earth-fixed)</option>
+        </select></label>
+      </>}
       {simView === 'payload' && <span>Payload face: {scenario?.mission.spacecraft.payload.side ?? '+Z'} | Field of view: 35 deg | Recorded attitude</span>}
     </div>
     <div ref={container} style={{ width: '100%', height: 'min(62vh, 580px)', minHeight: 330, borderRadius: 10, overflow: 'hidden', border: '1px solid #1f2937' }} />
