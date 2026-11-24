@@ -132,7 +132,7 @@ export default function CesiumViewer({ scenario, simView, stationIndex = 0, onTi
       baseLayer: C.ImageryLayer.fromProviderAsync(C.TileMapServiceImageryProvider.fromUrl(C.buildModuleUrl('Assets/Textures/NaturalEarthII'))),
       terrainProvider: new C.EllipsoidTerrainProvider(),
       geocoder: false, homeButton: false, sceneModePicker: false,
-      navigationHelpButton: false, fullscreenButton: true,
+      navigationHelpButton: false, fullscreenButton: false,
       selectionIndicator: true, infoBox: false, shouldAnimate: false
     });
     viewer.scene.globe.enableLighting = true;

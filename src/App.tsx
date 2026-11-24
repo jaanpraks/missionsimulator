@@ -60,6 +60,7 @@ export default function App() {
     <div className="app-shell">
       <header className="app-header">
         <TopBar challenge={challenge?.objective} canSimulate={!!scenario && savedText === missionText} canAnalyze={runs.length > 0} tab={tab} setTab={setTab} subtitle={tab === 'challenges' ? 'Choose a mission objective' : tab === 'start' ? 'Your mission starts here' : tab === 'build' ? 'Configure your mission' : tab === 'analyze' ? 'Inspect recorded mission results' : subtitle} />
+        <FullscreenButton />
         <div className="stage-header-row" hidden={tab === 'start' || tab === 'challenges'}>
           <div className="stage-navigation" ref={setNavigation} />
           <div className="stage-actions" ref={setActions} />
@@ -114,6 +115,36 @@ function TopBar({ tab, setTab, subtitle, canSimulate, canAnalyze, challenge }: {
     {challenge && <span className="challenge-reminder" role="status">Challenge: {challenge}</span>}
     <div className="brand"><strong>Aalto EDUSat</strong><span>{subtitle}</span></div>
   </div>;
+}
+
+function FullscreenButton() {
+  const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement);
+
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
+
+  const label = fullscreen ? 'Exit fullscreen' : 'Enter fullscreen';
+
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (error) {
+      console.warn('Could not change fullscreen mode', error);
+    }
+  }
+
+  return <button type="button" className="fullscreen-toggle" disabled={!document.fullscreenEnabled} aria-label={label} title={label} onClick={toggleFullscreen}>
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={fullscreen ? 'M3 9h6V3m12 6h-6V3M3 15h6v6m12-6h-6v6' : 'M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6'} />
+    </svg>
+  </button>;
 }
 
 function SimulateTab({ scenario, view, setView, active, onComplete }: { onComplete: () => void; scenario: CompiledScenario | null; view: SimViewId; setView: (v: SimViewId) => void; active: boolean }) {
