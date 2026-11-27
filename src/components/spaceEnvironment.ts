@@ -32,11 +32,9 @@ const magnetosphereCenterX = -14;
 const magnetosphereGlow = `
   vec2 p = (materialInput.st - 0.5) * vec2(${magnetosphereWidth}.0, ${magnetosphereHeight}.0)
            + vec2(${magnetosphereCenterX}.0, 0.0);
-  // Rounded dayside at +10 Earth radii, with a taper to the nightside tip.
+  // Rounded dayside at +10 Earth radii, continuing smoothly into a fading open tail.
   float boundary = 10.0 - p.y * p.y * (0.075 + 0.00015 * p.y * p.y);
   float distance = (p.x - boundary) / (1.0 + 0.13 * abs(p.y));
-  float tailHalfWidth = 19.0 * clamp((p.x + 40.0) / 28.0, 0.0, 1.0);
-  distance = max(distance, abs(p.y) - tailHalfWidth);
   float rim = exp(-pow(abs(distance) / 0.85, 2.0));
   float inside = 1.0 - smoothstep(-2.5, 0.0, distance);
   float tailFade = smoothstep(-40.0, -12.0, p.x);
